@@ -7704,6 +7704,7 @@ Item *Item::build_pushable_cond(THD *thd,
       return 0;
     List_iterator<Item> li(*((Item_cond*) this)->argument_list());
     Item *item;
+    bool is_fix_needed= false;
 
     while ((item=li++))
     {
@@ -7718,9 +7719,16 @@ Item *Item::build_pushable_cond(THD *thd,
         return 0;
       if (!fix)
         continue;
+
+       if (fix->type() == Item::COND_ITEM &&
+           ((Item_cond*) fix)->functype() == Item_func::COND_AND_FUNC)
+         is_fix_needed= true;
+
       if (new_cond->argument_list()->push_back(fix, thd->mem_root))
         return 0;
     }
+    if (is_fix_needed)
+      new_cond->fix_fields(thd, 0);
 
     switch (new_cond->argument_list()->elements)
     {
