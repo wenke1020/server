@@ -1640,22 +1640,14 @@ deallocate_or_drop:
         ;
 
 prepare:
-          PREPARE_SYM
-          {
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
-          }
-          ident FROM prepare_src
+          PREPARE_SYM ident FROM prepare_src
           {
             LEX *lex= thd->lex;
             if (lex->table_or_sp_used())
               my_yyabort_error((ER_SUBQUERIES_NOT_SUPPORTED, MYF(0),
                                "PREPARE..FROM"));
-            if (Lex->check_main_unit_semantics())
-              MYSQL_YYABORT;
             lex->sql_command= SQLCOM_PREPARE;
-            lex->prepared_stmt_name= $3;
-            Lex->pop_select(); //main select
+            lex->prepared_stmt_name= $2;
           }
         ;
 
@@ -1674,21 +1666,10 @@ execute:
             LEX *lex= thd->lex;
             lex->sql_command= SQLCOM_EXECUTE;
             lex->prepared_stmt_name= $2;
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
           }
           execute_using
-          {
-            Lex->pop_select(); //main select
-            if (Lex->check_main_unit_semantics())
-              MYSQL_YYABORT;
-          }
-        | EXECUTE_SYM IMMEDIATE_SYM
-          {
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
-          }
-          prepare_src
+          {}
+        | EXECUTE_SYM IMMEDIATE_SYM prepare_src
           {
             if (Lex->table_or_sp_used())
               my_yyabort_error((ER_SUBQUERIES_NOT_SUPPORTED, MYF(0),
@@ -1696,11 +1677,7 @@ execute:
             Lex->sql_command= SQLCOM_EXECUTE_IMMEDIATE;
           }
           execute_using
-          {
-            Lex->pop_select(); //main select
-            if (Lex->check_main_unit_semantics())
-              MYSQL_YYABORT;
-          }
+          {}
         ;
 
 execute_using:
@@ -2952,13 +2929,8 @@ call:
           {
             if (Lex->call_statement_start(thd, $2))
               MYSQL_YYABORT;
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
           }
-          opt_sp_cparam_list
-          {
-            Lex->pop_select(); //main select
-          }
+          opt_sp_cparam_list {}
         ;
 
 /* CALL parameters */
@@ -3488,16 +3460,10 @@ raise_stmt:
         ;
 
 signal_stmt:
-          SIGNAL_SYM
+          SIGNAL_SYM signal_value opt_set_signal_information
           {
-            if (Lex->main_select_push())
-              YYABORT;
-          }
-          signal_value opt_set_signal_information
-          {
-            if (Lex->add_signal_statement(thd, $3))
+            if (Lex->add_signal_statement(thd, $2))
               MYSQL_YYABORT;
-            Lex->pop_select(); //main select
           }
         ;
 
@@ -3623,14 +3589,9 @@ resignal_stmt:
         ;
 
 get_diagnostics:
-          GET_SYM which_area DIAGNOSTICS_SYM
+          GET_SYM which_area DIAGNOSTICS_SYM diagnostics_information
           {
-            if (Lex->main_select_push())
-              YYABORT;
-          }
-          diagnostics_information
-          {
-            Diagnostics_information *info= $5;
+            Diagnostics_information *info= $4;
 
             info->set_which_da($2);
 
@@ -3639,7 +3600,6 @@ get_diagnostics:
 
             if (Lex->m_sql_cmd == NULL)
               MYSQL_YYABORT;
-            Lex->pop_select(); //main select
           }
         ;
 
@@ -3820,26 +3780,8 @@ sp_decl_idents:
 
 sp_opt_default:
           /* Empty */ { $$ = NULL; }
-        | DEFAULT
-          {
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
-          }
-          expr
-          {
-            Lex->pop_select(); //main select
-            $$ = $3;
-          }
-        | SET_VAR
-          {
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
-          }
-          expr
-          {
-            Lex->pop_select(); //main select
-            $$ = $3;
-          }
+        | DEFAULT expr { $$ = $2; }
+        | SET_VAR expr { $$ = $2; }
         ;
 
 sp_proc_stmt:
@@ -3956,15 +3898,10 @@ sp_proc_stmt_statement:
 
 sp_proc_stmt_return:
           RETURN_SYM 
-          {
-            Lex->sphead->reset_lex(thd);
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
-          }
+          { Lex->sphead->reset_lex(thd); }
           expr
           {
             LEX *lex= Lex;
-            lex->pop_select(); //main select
             sp_head *sp= lex->sphead;
             if (sp->m_handler->add_instr_freturn(thd, sp, lex->spcont,
                                                  $3, lex) ||
@@ -4090,8 +4027,6 @@ assignment_source_expr:
           {
             DBUG_ASSERT(thd->free_list == NULL);
             Lex->sphead->reset_lex(thd, $1);
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
           }
           expr
           {
@@ -4100,7 +4035,6 @@ assignment_source_expr:
             $$->sp_lex_in_use= true;
             $$->set_item_and_free_list($3, thd->free_list);
             thd->free_list= NULL;
-            Lex->pop_select(); //main select
             if ($$->sphead->restore_lex(thd))
               MYSQL_YYABORT;
           }
@@ -4110,6 +4044,7 @@ for_loop_bound_expr:
           assignment_source_lex
           {
             Lex->sphead->reset_lex(thd, $1);
+            Lex->current_select->parsing_place= FOR_LOOP_BOUND;
           }
           expr
           {
@@ -4119,6 +4054,7 @@ for_loop_bound_expr:
             $$->set_item_and_free_list($3, NULL);
             if ($$->sphead->restore_lex(thd))
               MYSQL_YYABORT;
+            Lex->current_select->parsing_place= NO_MATTER;
           }
         ;
 
@@ -4221,14 +4157,9 @@ sp_fetch_list:
         ;
 
 sp_if:
-          {
-            Lex->sphead->reset_lex(thd);
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
-          }
+          { Lex->sphead->reset_lex(thd); }
           expr THEN_SYM
           {
-            Lex->pop_select(); //main select
             LEX *lex= Lex;
             sp_head *sp= lex->sphead;
             sp_pcontext *ctx= lex->spcont;
@@ -4340,18 +4271,12 @@ case_stmt_specification:
         ;
 
 case_stmt_body:
-          {
-            Lex->sphead->reset_lex(thd); /* For expr $2 */
-
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
-          }
+          { Lex->sphead->reset_lex(thd); /* For expr $2 */ }
           expr
           {
             if (Lex->case_stmt_action_expr($2))
               MYSQL_YYABORT;
 
-            Lex->pop_select(); //main select
             if (Lex->sphead->restore_lex(thd))
               MYSQL_YYABORT;
           }
@@ -4375,9 +4300,6 @@ simple_when_clause:
           WHEN_SYM
           {
             Lex->sphead->reset_lex(thd); /* For expr $3 */
-
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
           }
           expr
           {
@@ -4386,8 +4308,6 @@ simple_when_clause:
             LEX *lex= Lex;
             if (lex->case_stmt_action_when($3, true))
               MYSQL_YYABORT;
-
-            lex->pop_select(); //main select
             /* For expr $3 */
             if (lex->sphead->restore_lex(thd))
               MYSQL_YYABORT;
@@ -4404,17 +4324,12 @@ searched_when_clause:
           WHEN_SYM
           {
             Lex->sphead->reset_lex(thd); /* For expr $3 */
-
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
           }
           expr
           {
             LEX *lex= Lex;
             if (lex->case_stmt_action_when($3, false))
               MYSQL_YYABORT;
-
-            lex->pop_select(); //main select
             /* For expr $3 */
             if (lex->sphead->restore_lex(thd))
               MYSQL_YYABORT;
@@ -4654,7 +4569,6 @@ while_body:
             LEX *lex= Lex;
             if (lex->sp_while_loop_expression(thd, $1))
               MYSQL_YYABORT;
-            Lex->pop_select(); //main select pushed before while_body use
             if (lex->sphead->restore_lex(thd))
               MYSQL_YYABORT;
           }
@@ -4667,12 +4581,7 @@ while_body:
 
 repeat_body:
           sp_proc_stmts1 UNTIL_SYM 
-          {
-            Lex->sphead->reset_lex(thd);
-
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
-          }
+          { Lex->sphead->reset_lex(thd); }
           expr END REPEAT_SYM
           {
             LEX *lex= Lex;
@@ -4683,8 +4592,6 @@ repeat_body:
             if (i == NULL ||
                 lex->sphead->add_instr(i))
               MYSQL_YYABORT;
-
-            lex->pop_select(); //main select
             if (lex->sphead->restore_lex(thd))
               MYSQL_YYABORT;
             /* We can shortcut the cont_backpatch here */
@@ -4713,12 +4620,8 @@ sp_labeled_control:
             if (Lex->sp_push_loop_label(thd, &$1))
               MYSQL_YYABORT;
             Lex->sphead->reset_lex(thd);
-
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
           }
           while_body pop_sp_loop_label
-
           { }
         | labels_declaration_oracle FOR_SYM
           {
@@ -4770,13 +4673,9 @@ sp_unlabeled_control:
             if (Lex->sp_push_loop_empty_label(thd))
               MYSQL_YYABORT;
             Lex->sphead->reset_lex(thd);
-
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
           }
           while_body
           {
-            // while body pop main select
             Lex->sp_pop_loop_empty_label(thd);
           }
         | FOR_SYM
@@ -6687,22 +6586,7 @@ parenthesized_expr:
           remember_tok_start
           query_expression
           {
-            if (!Lex->expr_allows_subselect ||
-               Lex->sql_command == (int)SQLCOM_PURGE)
-            {
-              thd->parse_error(ER_SYNTAX_ERROR, $1);
-              MYSQL_YYABORT;
-            }
-
-            // Add the subtree of subquery to the current SELECT_LEX
-            SELECT_LEX *curr_sel= Lex->select_stack_head();
-            DBUG_ASSERT(Lex->current_select == curr_sel);
-            curr_sel->register_unit($2, &curr_sel->context);
-            curr_sel->add_statistics($2);
-
-            $$= new (thd->mem_root)
-              Item_singlerow_subselect(thd, $2->first_select());
-            if ($$ == NULL)
+            if (!($$= Lex->create_item_query_expression(thd, $1, $2)))
               MYSQL_YYABORT;
           }
         | expr
@@ -8599,13 +8483,9 @@ checksum:
             lex->sql_command = SQLCOM_CHECKSUM;
             /* Will be overridden during execution. */
             YYPS->m_lock_type= TL_UNLOCK;
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
           }
           table_list opt_checksum_type
-          {
-            Lex->pop_select(); //main select
-          }
+          {}
         ;
 
 opt_checksum_type:
@@ -8631,8 +8511,6 @@ repair:
             lex->alter_info.reset();
             /* Will be overridden during execution. */
             YYPS->m_lock_type= TL_UNLOCK;
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
           }
           repair_table_or_view
           {
@@ -8641,7 +8519,6 @@ repair:
             lex->m_sql_cmd= new (thd->mem_root) Sql_cmd_repair_table();
             if (lex->m_sql_cmd == NULL)
               MYSQL_YYABORT;
-            Lex->pop_select(); //main select
           }
         ;
 
@@ -8670,8 +8547,6 @@ analyze:
           ANALYZE_SYM opt_no_write_to_binlog table_or_tables
           {
             LEX *lex=Lex;
-            if (lex->main_select_push())
-              YYABORT;
             lex->sql_command = SQLCOM_ANALYZE;
             lex->no_write_to_binlog= $2;
             lex->check_opt.init();
@@ -8686,7 +8561,6 @@ analyze:
             lex->m_sql_cmd= new (thd->mem_root) Sql_cmd_analyze_table();
             if (lex->m_sql_cmd == NULL)
               MYSQL_YYABORT;
-            Lex->pop_select(); //main select
           }
         ;
 
@@ -8803,8 +8677,6 @@ check:    CHECK_SYM
             lex->alter_info.reset();
             /* Will be overridden during execution. */
             YYPS->m_lock_type= TL_UNLOCK;
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
           }
           check_view_or_table
           {
@@ -8815,7 +8687,6 @@ check:    CHECK_SYM
             lex->m_sql_cmd= new (thd->mem_root) Sql_cmd_check_table();
             if (lex->m_sql_cmd == NULL)
               MYSQL_YYABORT;
-            Lex->pop_select(); //main select
           }
         ;
 
@@ -8853,8 +8724,6 @@ optimize:
             lex->alter_info.reset();
             /* Will be overridden during execution. */
             YYPS->m_lock_type= TL_UNLOCK;
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
           }
           table_list opt_lock_wait_timeout
           {
@@ -8863,7 +8732,6 @@ optimize:
             lex->m_sql_cmd= new (thd->mem_root) Sql_cmd_optimize_table();
             if (lex->m_sql_cmd == NULL)
               MYSQL_YYABORT;
-            Lex->pop_select(); //main select
           }
         ;
 
@@ -8877,13 +8745,9 @@ rename:
           RENAME table_or_tables
           {
             Lex->sql_command= SQLCOM_RENAME_TABLE;
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
           }
           table_to_table_list
-          {
-            Lex->pop_select(); //main select
-          }
+          {}
         | RENAME USER_SYM clear_privileges rename_list
           {
             Lex->sql_command = SQLCOM_RENAME_USER;
@@ -8977,13 +8841,9 @@ preload:
             LEX *lex=Lex;
             lex->sql_command=SQLCOM_PRELOAD_KEYS;
             lex->alter_info.reset();
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
           }
           preload_list_or_parts
-          {
-            Lex->pop_select(); //main select
-          }
+          {}
         ;
 
 preload_list_or_parts:
@@ -10160,7 +10020,21 @@ column_default_non_parenthesized_expr:
         | param_marker { $$= $1; }
         | variable
         | sum_expr
+          {
+            if (!Lex->select_stack_top)
+            {
+              my_error(ER_INVALID_GROUP_FUNC_USE, MYF(0));
+              MYSQL_YYABORT;
+            }
+          }
         | window_func_expr
+          {
+            if (!Lex->select_stack_top)
+            {
+               my_error(ER_WRONG_PLACEMENT_OF_WINDOW_FUNCTION, MYF(0));
+               MYSQL_YYABORT;
+            }
+          }
         | inverse_distribution_function
         | ROW_SYM '(' expr ',' expr_list ')'
           {
@@ -11283,7 +11157,7 @@ sum_expr:
             SELECT_LEX *sel= Select;
             sel->in_sum_expr--;
             $$= new (thd->mem_root)
-                  Item_func_group_concat(thd, Lex->current_context(),
+                  Item_func_group_concat(thd, Lex->current_context_or_default(),
                                         $3, $5,
                                         sel->gorder_list, $7, $8,
                                         sel->select_limit,
@@ -12996,15 +12870,10 @@ do:
             LEX *lex=Lex;
             lex->sql_command = SQLCOM_DO;
             mysql_init_select(lex);
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
           }
           expr_list
           {
             Lex->insert_list= $3;
-            Lex->pop_select(); //main select
-            if (Lex->check_main_unit_semantics())
-              MYSQL_YYABORT;
           }
         ;
 
@@ -13688,7 +13557,6 @@ truncate:
             lex->m_sql_cmd= new (thd->mem_root) Sql_cmd_truncate_table();
             if (lex->m_sql_cmd == NULL)
               MYSQL_YYABORT;
-            Lex->pop_select(); //main select
           }
           opt_truncate_table_storage_clause { }
         ;
@@ -14481,13 +14349,9 @@ purge:
             LEX *lex=Lex;
             lex->type=0;
             lex->sql_command = SQLCOM_PURGE;
-            if (lex->main_select_push())
-              MYSQL_YYABORT;
           }
           purge_options
-          {
-            Lex->pop_select(); //main select
-          }
+          {}
         ;
 
 purge_options:
@@ -14505,8 +14369,6 @@ purge_option:
             lex->value_list.empty();
             lex->value_list.push_front($2, thd->mem_root);
             lex->sql_command= SQLCOM_PURGE_BEFORE;
-            if (Lex->check_main_unit_semantics())
-              MYSQL_YYABORT;
           }
         ;
 
@@ -14516,8 +14378,6 @@ kill:
           KILL_SYM
           {
             LEX *lex=Lex;
-            if (lex->main_select_push())
-              YYABORT;
             lex->value_list.empty();
             lex->users_list.empty();
             lex->sql_command= SQLCOM_KILL;
@@ -14526,7 +14386,6 @@ kill:
           kill_type kill_option kill_expr
           {
             Lex->kill_signal= (killed_state) ($3 | $4);
-            Lex->pop_select(); //main select
           }
         ;
 
@@ -16479,13 +16338,9 @@ lock:
             if (lex->sphead)
               my_yyabort_error((ER_SP_BADSTATEMENT, MYF(0), "LOCK"));
             lex->sql_command= SQLCOM_LOCK_TABLES;
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
           }
           table_lock_list opt_lock_wait_timeout
-          {
-            Lex->pop_select(); //main select
-          }
+          {}
         ;
 
 opt_lock_wait_timeout:
@@ -16550,13 +16405,9 @@ unlock:
             if (lex->sphead)
               my_yyabort_error((ER_SP_BADSTATEMENT, MYF(0), "UNLOCK"));
             lex->sql_command= SQLCOM_UNLOCK_TABLES;
-            if (Lex->main_select_push())
-              MYSQL_YYABORT;
           }
           table_or_tables
-          {
-            Lex->pop_select(); //main select
-          }
+          {}
         ;
 
 /*
