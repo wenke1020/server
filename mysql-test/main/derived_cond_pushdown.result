@@ -8935,7 +8935,7 @@ EXPLAIN
                     "access_type": "ALL",
                     "rows": 18,
                     "filtered": 100,
-                    "attached_condition": "__3.a > 5 and __3.c > 200",
+                    "attached_condition": "__5.a > 5 and __5.c > 200",
                     "materialized": {
                       "query_block": {
                         "union_result": {
@@ -9561,7 +9561,7 @@ EXPLAIN
                     "access_type": "ALL",
                     "rows": 18,
                     "filtered": 100,
-                    "attached_condition": "__3.a > 4 and __3.c < 130",
+                    "attached_condition": "__5.a > 4 and __5.c < 130",
                     "materialized": {
                       "query_block": {
                         "union_result": {
@@ -9707,7 +9707,7 @@ EXPLAIN
                     "access_type": "ALL",
                     "rows": 18,
                     "filtered": 100,
-                    "attached_condition": "__3.a > 4 and __3.c < 130",
+                    "attached_condition": "__6.a > 4 and __6.c < 130",
                     "materialized": {
                       "query_block": {
                         "union_result": {
