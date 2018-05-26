@@ -63,6 +63,9 @@ select * from t0,t2 where t2.a=t0.a order by t2.b limit 4;
 --echo #
 --echo # Try a SELECT with QEP in form: join { filesort { table0 }, table2 }
 --echo #
+set @saved_join_cache_level= @@join_cache_level;
+set @@join_cache_level=2;
+
 explain
 select * from t0,t2 where t2.a=t0.a order by t0.a limit 4;
 explain format=json
@@ -72,7 +75,7 @@ analyze format=json
 select * from t0,t2 where t2.a=t0.a order by t0.a limit 4;
 
 drop table t2;
-
+set @@join_cache_level= @saved_join_cache_level;
 
 create table t2 (
   a int,

@@ -164,7 +164,7 @@ explain
 select * from t0,t2 where t2.a=t0.a order by t2.b limit 4;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	Extra
 1	SIMPLE	t0	ALL	NULL	NULL	NULL	NULL	10	Using where; Using temporary; Using filesort
-1	SIMPLE	t2	ref	a	a	5	test.t0.a	1	
+1	SIMPLE	t2	hash_ALL	a	#hash#a	5	test.t0.a	9995	Using join buffer (flat, BNLH join)
 explain format=json
 select * from t0,t2 where t2.a=t0.a order by t2.b limit 4;
 EXPLAIN
@@ -181,16 +181,21 @@ EXPLAIN
           "filtered": 100,
           "attached_condition": "t0.a is not null"
         },
-        "table": {
-          "table_name": "t2",
-          "access_type": "ref",
-          "possible_keys": ["a"],
-          "key": "a",
-          "key_length": "5",
-          "used_key_parts": ["a"],
-          "ref": ["test.t0.a"],
-          "rows": 1,
-          "filtered": 100
+        "block-nl-join": {
+          "table": {
+            "table_name": "t2",
+            "access_type": "hash_ALL",
+            "possible_keys": ["a"],
+            "key": "#hash#a",
+            "key_length": "5",
+            "used_key_parts": ["a"],
+            "ref": ["test.t0.a"],
+            "rows": 9995,
+            "filtered": 0.01
+          },
+          "buffer_type": "flat",
+          "buffer_size": "256Kb",
+          "join_type": "BNLH"
         }
       }
     }
@@ -223,19 +228,25 @@ ANALYZE
           "r_filtered": 100,
           "attached_condition": "t0.a is not null"
         },
-        "table": {
-          "table_name": "t2",
-          "access_type": "ref",
-          "possible_keys": ["a"],
-          "key": "a",
-          "key_length": "5",
-          "used_key_parts": ["a"],
-          "ref": ["test.t0.a"],
-          "r_loops": 10,
-          "rows": 1,
-          "r_rows": 0.4,
-          "r_total_time_ms": "REPLACED",
-          "filtered": 100,
+        "block-nl-join": {
+          "table": {
+            "table_name": "t2",
+            "access_type": "hash_ALL",
+            "possible_keys": ["a"],
+            "key": "#hash#a",
+            "key_length": "5",
+            "used_key_parts": ["a"],
+            "ref": ["test.t0.a"],
+            "r_loops": 1,
+            "rows": 9995,
+            "r_rows": 9995,
+            "r_total_time_ms": "REPLACED",
+            "filtered": 0.01,
+            "r_filtered": 100
+          },
+          "buffer_type": "flat",
+          "buffer_size": "256Kb",
+          "join_type": "BNLH",
           "r_filtered": 100
         }
       }
@@ -245,6 +256,8 @@ ANALYZE
 #
 # Try a SELECT with QEP in form: join { filesort { table0 }, table2 }
 #
+set @saved_join_cache_level= @@join_cache_level;
+set @@join_cache_level=2;
 explain
 select * from t0,t2 where t2.a=t0.a order by t0.a limit 4;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	Extra
@@ -329,6 +342,7 @@ ANALYZE
   }
 }
 drop table t2;
+set @@join_cache_level= @saved_join_cache_level;
 create table t2 (
 a int,
 b int,
@@ -412,12 +426,17 @@ ANALYZE
           "r_rows": 10,
           "r_total_time_ms": "REPLACED",
           "filtered": 100,
-          "r_filtered": 100
+          "r_filtered": 100,
+          "attached_condition": "t0.a is not null"
         },
         "block-nl-join": {
           "table": {
             "table_name": "t3",
-            "access_type": "ALL",
+            "access_type": "hash_ALL",
+            "key": "#hash#$hj",
+            "key_length": "5",
+            "used_key_parts": ["a"],
+            "ref": ["test.t0.a"],
             "r_loops": 1,
             "rows": 10,
             "r_rows": 10,
@@ -427,9 +446,9 @@ ANALYZE
           },
           "buffer_type": "flat",
           "buffer_size": "256Kb",
-          "join_type": "BNL",
+          "join_type": "BNLH",
           "attached_condition": "t3.a = t0.a",
-          "r_filtered": 10
+          "r_filtered": 100
         }
       }
     }
@@ -483,12 +502,16 @@ ANALYZE
               "r_total_time_ms": "REPLACED",
               "filtered": 100,
               "r_filtered": 80,
-              "attached_condition": "t6.b > 0 and t6.a <= 5"
+              "attached_condition": "t6.b > 0 and t6.a <= 5 and t6.a is not null"
             },
             "block-nl-join": {
               "table": {
                 "table_name": "t5",
-                "access_type": "ALL",
+                "access_type": "hash_ALL",
+                "key": "#hash#$hj",
+                "key_length": "5",
+                "used_key_parts": ["a"],
+                "ref": ["test.t6.a"],
                 "r_loops": 1,
                 "rows": 7,
                 "r_rows": 7,
@@ -498,9 +521,9 @@ ANALYZE
               },
               "buffer_type": "flat",
               "buffer_size": "256Kb",
-              "join_type": "BNL",
+              "join_type": "BNLH",
               "attached_condition": "t5.a = t6.a",
-              "r_filtered": 21.429
+              "r_filtered": 100
             }
           }
         }
@@ -527,18 +550,22 @@ EXPLAIN
               "access_type": "ALL",
               "rows": 5,
               "filtered": 100,
-              "attached_condition": "t6.b > 0 and t6.a <= 5"
+              "attached_condition": "t6.b > 0 and t6.a <= 5 and t6.a is not null"
             },
             "block-nl-join": {
               "table": {
                 "table_name": "t5",
-                "access_type": "ALL",
+                "access_type": "hash_ALL",
+                "key": "#hash#$hj",
+                "key_length": "5",
+                "used_key_parts": ["a"],
+                "ref": ["test.t6.a"],
                 "rows": 7,
                 "filtered": 100
               },
               "buffer_type": "flat",
               "buffer_size": "256Kb",
-              "join_type": "BNL",
+              "join_type": "BNLH",
               "attached_condition": "t5.a = t6.a"
             }
           }
