@@ -43,7 +43,7 @@ select * from t1, (select f1(sal) as a  from t1 where id>= 1) q where q.a=t1.sal
 show  status like "%custom_aggregate%";
 
 explain
-select * from t1, (select sal as a from t1 where (select f1(t3.sal) from t3) >=-1 ) q where q.a=t1.sal;
+select * from t1, (select sal as a from t1 where (select f1(t3.sal) from t3) >=1 ) q where q.a=t1.sal;
 show  status like "%custom_aggregate%";
 
 explain
