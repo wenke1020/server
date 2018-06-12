@@ -4383,6 +4383,7 @@ bool select_create::send_eof()
   */
   if (!table->s->tmp_table)
   {
+#ifdef WITH_WSREP
     if (WSREP_ON)
     {
       /*
@@ -4412,6 +4413,7 @@ bool select_create::send_eof()
       /* If commit fails, we should be able to reset the OK status. */
       thd->get_stmt_da()->set_overwrite_status(TRUE);
     }
+#endif /* WITH_WSREP */
     trans_commit_stmt(thd);
     if (!(thd->variables.option_bits & OPTION_GTID_BEGIN))
       trans_commit_implicit(thd);
