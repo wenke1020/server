@@ -5653,6 +5653,7 @@ Item *and_new_conditions_to_optimized_cond(THD *thd, Item *cond,
   */
   if (is_simplified_cond)
     cond= cond->remove_eq_conds(thd, cond_value, true);
+
   return cond;
 }
 
@@ -6320,33 +6321,31 @@ bool JOIN::choose_tableless_subquery_plan()
 }
 
 
-/*
-  Check if the item exists in the fields list of the left part of
-  the IN subquery predicate subq_pred and returns its corresponding
-  item from the select of the right part of subq_pred.
-*/
-Item *Item::get_corresponding_field_in_insubq(Item_in_subselect *subq_pred)
-{
-  DBUG_ASSERT(type() == Item::FIELD_ITEM ||
-              (type() == Item::REF_ITEM &&
-               ((Item_ref *) this)->ref_type() == Item_ref::VIEW_REF));
+Field_pair *get_corresponding_field_pair(Item *item,
+                                         List<Field_pair> pair_list);
 
-  List_iterator<Field_pair> it(subq_pred->corresponding_fields);
-  Field_pair *ret;
-  Item_field *field_item= (Item_field *) (real_item());
-  while ((ret= it++))
-  {
-    if (field_item->field == ret->field)
-      return ret->corresponding_item;
-  }
-  return NULL;
+
+bool Item::pushable_equality_checker_for_subquery(uchar *arg)
+{
+  return
+  get_corresponding_field_pair(this,
+                            ((Item_in_subselect *)arg)->corresponding_fields);
 }
 
 
-bool Item_field::excl_dep_on_in_subq_left_part(Item_in_subselect *subq_pred)
+/*
+  Checks if 'item' or some item equal to it is equal to the field from
+  some Field_pair of 'pair_list' and returns matching Field_pair or
+  NULL if the matching Field_pair wasn't found.
+*/
+
+Field_pair *find_matching_field_pair(Item *item, List<Field_pair> pair_list)
 {
-  if (((Item *)this)->get_corresponding_field_in_insubq(subq_pred))
-    return true;
+  Field_pair *field_pair= get_corresponding_field_pair(item, pair_list);
+  if (field_pair)
+    return field_pair;
+
+  Item_equal *item_equal= item->get_item_equal();
   if (item_equal)
   {
     Item_equal_fields_iterator it(*item_equal);
@@ -6355,10 +6354,19 @@ bool Item_field::excl_dep_on_in_subq_left_part(Item_in_subselect *subq_pred)
     {
       if (equal_item->const_item())
         continue;
-      if (equal_item->get_corresponding_field_in_insubq(subq_pred))
-        return true;
+      field_pair= get_corresponding_field_pair(equal_item, pair_list);
+      if (field_pair)
+        return field_pair;
     }
   }
+  return NULL;
+}
+
+
+bool Item_field::excl_dep_on_in_subq_left_part(Item_in_subselect *subq_pred)
+{
+  if (find_matching_field_pair(((Item *) this), subq_pred->corresponding_fields))
+    return true;
   return false;
 }
 
@@ -6368,7 +6376,7 @@ bool Item_direct_view_ref::excl_dep_on_in_subq_left_part(Item_in_subselect *subq
   if (item_equal)
   {
     DBUG_ASSERT(real_item()->type() == Item::FIELD_ITEM);
-    if (((Item *)this)->get_corresponding_field_in_insubq(subq_pred))
+    if (get_corresponding_field_pair(((Item *)this), subq_pred->corresponding_fields))
       return true;
   }
   return (*ref)->excl_dep_on_in_subq_left_part(subq_pred);
@@ -6432,7 +6440,7 @@ Item *get_corresponding_item(THD *thd, Item *item,
               (item->type() == Item::REF_ITEM &&
               ((Item_ref *) item)->ref_type() == Item_ref::VIEW_REF));
 
-  Item *corresonding_item;
+  Field_pair *field_pair;
   Item_equal *item_equal= item->get_item_equal();
 
   if (item_equal)
@@ -6441,15 +6449,20 @@ Item *get_corresponding_item(THD *thd, Item *item,
     Item *equal_item;
     while ((equal_item= it++))
     {
-      corresonding_item=
-        equal_item->get_corresponding_field_in_insubq(subq_pred);
-      if (corresonding_item)
-        return corresonding_item;
+      field_pair=
+        get_corresponding_field_pair(equal_item, subq_pred->corresponding_fields);
+      if (field_pair)
+        return field_pair->corresponding_item;
     }
-    return NULL;
   }
   else
-    return item->get_corresponding_field_in_insubq(subq_pred);
+  {
+    field_pair=
+        get_corresponding_field_pair(item, subq_pred->corresponding_fields);
+    if (field_pair)
+        return field_pair->corresponding_item;
+  }
+  return NULL;
 }
 
 
@@ -6725,9 +6738,7 @@ bool Item_in_subselect::pushdown_cond_for_in_subquery(THD *thd, Item *cond)
   if (!remaining_cond)
     goto exit;
 
-  remaining_cond->walk(&Item::cleanup_excluding_const_fields_processor,
-                       0, 0);
-  sel->cond_pushed_into_having= remaining_cond;
+  sel->mark_or_conds_to_avoid_pushdown(remaining_cond);
 
 exit:
   thd->lex->current_select= save_curr_select;

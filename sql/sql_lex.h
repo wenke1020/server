@@ -1239,8 +1239,9 @@ public:
   With_element *find_table_def_in_with_clauses(TABLE_LIST *table);
   bool check_unrestricted_recursive(bool only_standard_compliant);
   bool check_subqueries_with_recursive_references();
-  void collect_grouping_fields(THD *thd, ORDER *grouping_list);
-  void check_cond_extraction_for_grouping_fields(Item *cond);
+  void collect_grouping_fields_for_derived(THD *thd, ORDER *grouping_list);
+  bool collect_grouping_fields(THD *thd);
+  void check_cond_extraction_for_grouping_fields(THD *thd, Item *cond);
   Item *build_cond_for_grouping_fields(THD *thd, Item *cond,
 				       bool no_to_clones);
   
@@ -1270,6 +1271,9 @@ public:
                                        Item **remaining_cond,
                                        Item_transformer transformer,
                                        uchar *arg);
+  void mark_or_conds_to_avoid_pushdown(Item *cond);
+  Item *pushdown_from_having_into_where(THD *thd, Item *having,
+                                        COND_EQUAL **having_equal);
 
 private:
   bool m_non_agg_field_used;

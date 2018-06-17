@@ -2158,7 +2158,6 @@ public:
   {
     return excl_dep_on_in_subq_left_part((Item_in_subselect *)arg);
   }
-  Item *get_corresponding_field_in_insubq(Item_in_subselect *subq_pred);
   Item *build_pushable_cond(THD *thd,
                             Pushdown_checker checker,
                             uchar *arg);
@@ -2172,10 +2171,17 @@ public:
   /*
     Checks if this item consists in the left part of arg IN subquery predicate
   */
-  bool pushable_equality_checker_for_subquery(uchar *arg)
-  {
-    return get_corresponding_field_in_insubq((Item_in_subselect *)arg);
-  }
+  bool pushable_equality_checker_for_subquery(uchar *arg);
+  /*
+    Always returns true.
+    For the pushdown from the HAVING clause into the WHERE clause equality
+    can be pushed down if it contains the field that is equal to the field
+    from the GROUP BY of the select.
+    Equalities that can't be pushed are eliminated before this procedure call
+    so will never be handled by it.
+  */
+  bool pushable_equality_checker_for_having_pushdown(uchar *arg)
+  { return true; }
 };
 
 MEM_ROOT *get_thd_memroot(THD *thd);
@@ -4974,6 +4980,7 @@ public:
   Item *get_tmp_table_item(THD *thd);
   Field *create_tmp_field_ex(TABLE *table, Tmp_field_src *src,
                              const Tmp_field_param *param);
+  Item* propagate_equal_fields(THD *, const Context &, COND_EQUAL *);
   table_map used_tables() const;		
   void update_used_tables(); 
   COND *build_equal_items(THD *thd, COND_EQUAL *inherited,

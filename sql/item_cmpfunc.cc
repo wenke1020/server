@@ -6219,6 +6219,8 @@ Item_equal::Item_equal(THD *thd, Item_equal *item_equal):
   with_const= item_equal->with_const;
   cond_false= item_equal->cond_false;
   upper_levels= item_equal->upper_levels;
+  if (item_equal->upper_levels)
+    item_equal->upper_levels->references++;
 }
 
 

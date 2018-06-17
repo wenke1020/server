@@ -6405,6 +6405,22 @@ const Type_handler *Item_func_sp::type_handler() const
 }
 
 
+bool Item_func_sp::excl_dep_on_grouping_fields(st_select_lex *sel)
+{
+  if (sel->join->thd->having_pushdown)
+    return false;
+  return Item_args::excl_dep_on_grouping_fields(sel);
+}
+
+
+bool Item_udf_func::excl_dep_on_grouping_fields(st_select_lex *sel)
+{
+  if (sel->join->thd->having_pushdown)
+    return false;
+  return Item_args::excl_dep_on_grouping_fields(sel);
+}
+
+
 longlong Item_func_found_rows::val_int()
 {
   DBUG_ASSERT(fixed == 1);

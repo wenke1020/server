@@ -3048,6 +3048,8 @@ Item_sp::init_result_field(THD *thd, uint max_length, uint maybe_null,
 
 Item* Item_ref::build_clone(THD *thd)
 {
+  if (thd->having_pushdown)
+    return real_item()->build_clone(thd);
   Item_ref *copy= (Item_ref *) get_copy(thd);
   if (!copy ||
       !(copy->ref= (Item**) alloc_root(thd->mem_root, sizeof(Item*))) ||
@@ -7978,45 +7980,14 @@ Item *Item_direct_view_ref::derived_field_transformer_for_where(THD *thd,
   return this;
 }
 
-static
-Field_pair *find_matching_grouping_field(Item *item,
-					 st_select_lex *sel)
-{
-  DBUG_ASSERT(item->type() == Item::FIELD_ITEM ||
-              (item->type() == Item::REF_ITEM &&
-               ((Item_ref *) item)->ref_type() == Item_ref::VIEW_REF)); 
-  List_iterator<Field_pair> li(sel->grouping_tmp_fields);
-  Field_pair *gr_field;
-  Item_field *field_item= (Item_field *) (item->real_item());
-  while ((gr_field= li++))
-  {
-    if (field_item->field == gr_field->field)
-      return gr_field;
-  }
-  Item_equal *item_equal= item->get_item_equal();
-  if (item_equal)
-  {
-    Item_equal_fields_iterator it(*item_equal);
-    Item *equal_item;
-    while ((equal_item= it++))
-    {
-      field_item= (Item_field *) (equal_item->real_item());
-      li.rewind();
-      while ((gr_field= li++))
-      {
-        if (field_item->field == gr_field->field)
-	  return gr_field;
-      }
-    }
-  }
-  return NULL;
-}
     
+Field_pair *find_matching_field_pair(Item *item, List<Field_pair> pair_list);
+
 
 Item *Item_field::grouping_field_transformer_for_where(THD *thd, uchar *arg)
 {
   st_select_lex *sel= (st_select_lex *)arg;
-  Field_pair *gr_field= find_matching_grouping_field(this, sel);
+  Field_pair *gr_field= find_matching_field_pair(this, sel->grouping_tmp_fields);
   if (gr_field)
     return gr_field->corresponding_item->build_clone(thd);
   return this;
@@ -8030,7 +8001,8 @@ Item_direct_view_ref::grouping_field_transformer_for_where(THD *thd,
   if (!item_equal)
     return this;
   st_select_lex *sel= (st_select_lex *)arg;
-  Field_pair *gr_field= find_matching_grouping_field(this, sel);
+  Field_pair *gr_field= find_matching_field_pair(this,
+                                                 sel->grouping_tmp_fields);
   return gr_field->corresponding_item->build_clone(thd);
 }
 
@@ -9462,6 +9434,19 @@ Item *Item_direct_view_ref::propagate_equal_fields(THD *thd,
 }
 
 
+Item *Item_ref::propagate_equal_fields(THD *thd, const Context &ctx,
+                                       COND_EQUAL *cond)
+{
+  Item *field_item= real_item();
+  if (field_item->type() != FIELD_ITEM)
+    return this;
+  Item *item= field_item->propagate_equal_fields(thd, ctx, cond);
+  if (item != field_item)
+    return item;
+  return this;
+}
+
+
 /**
   Replace an Item_direct_view_ref for an equal Item_field evaluated earlier
   (if any).
@@ -9503,6 +9488,17 @@ Item *Item_direct_view_ref::replace_equal_field(THD *thd, uchar *arg)
   return item != field_item ? item : this;
 }
 
+bool Item_field::excl_dep_on_table(table_map tab_map)
+{
+  return used_tables() == tab_map ||
+         (item_equal && (item_equal->used_tables() & tab_map));
+}
+
+bool
+Item_field::excl_dep_on_grouping_fields(st_select_lex *sel)
+{
+  return find_matching_field_pair(this, sel->grouping_tmp_fields) != NULL;
+}
 
 bool Item_direct_view_ref::excl_dep_on_table(table_map tab_map)
 {
@@ -9524,7 +9520,7 @@ bool Item_direct_view_ref::excl_dep_on_grouping_fields(st_select_lex *sel)
   if (item_equal)
   {
     DBUG_ASSERT(real_item()->type() == Item::FIELD_ITEM);
-    return find_matching_grouping_field(this, sel) != NULL;
+    return (find_matching_field_pair(this, sel->grouping_tmp_fields) != NULL);
   }    
   return (*ref)->excl_dep_on_grouping_fields(sel);
 }
@@ -10968,17 +10964,6 @@ const char *dbug_print_unit(SELECT_LEX_UNIT *un)
 
 #endif /*DBUG_OFF*/
 
-bool Item_field::excl_dep_on_table(table_map tab_map)
-{
-  return used_tables() == tab_map || 
-         (item_equal && (item_equal->used_tables() & tab_map)); 
-}
-
-bool
-Item_field::excl_dep_on_grouping_fields(st_select_lex *sel)
-{
-  return find_matching_grouping_field(this, sel) != NULL;
-}
 
 bool Item_field::vers_trx_id() const
 {
